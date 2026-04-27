@@ -12,7 +12,10 @@ let plageVideData = {};
 // Live polygon tracking state
 let trackingActive = false;
 let trackingWatchId = null;
-let trackingTarget = null; // 'parcelle' | 'plage_N'
+let trackingTarget = null;
+let trackingTimer = null;
+let lastGPSPosition = null;
+let trackingCountdown = 0;
 
 const DB_KEY = 'cacaoCollect_fiches';
 const USER_KEY = 'cacaoCollect_session';
@@ -264,96 +267,153 @@ function captureGPS(latField, lonField, accId) {
 }
 
 // ── LIVE POLYGON TRACKING ─────────────────────
+function getTrackConfig(target) {
+  const intervalEl  = document.getElementById('trackInterval_' + target);
+  const accuracyEl  = document.getElementById('trackAccuracy_' + target);
+  return {
+    interval:    parseInt(intervalEl?.value  || 5),
+    maxAccuracy: parseFloat(accuracyEl?.value || 10),
+  };
+}
+
 function startTracking(target) {
   if (!navigator.geolocation) { showToast('GPS non disponible','error'); return; }
-  if (trackingActive) { stopTracking(); return; }
-  trackingActive = true;
-  trackingTarget = target;
+  if (trackingActive && trackingTarget === target) { stopTracking(); return; }
+  if (trackingActive) stopTracking();
 
-  const btn = document.getElementById('trackBtn_'+target);
-  const status = document.getElementById('trackStatus_'+target);
-  if (btn) { btn.textContent = '⏹ Arrêter le tracé'; btn.classList.add('tracking-active'); }
-  if (status) status.textContent = '🔴 Enregistrement en cours — marchez le long du périmètre…';
-  showToast('Tracé en cours — marchez le long du périmètre','success');
+  const cfg = getTrackConfig(target);
+  trackingActive   = true;
+  trackingTarget   = target;
+  lastGPSPosition  = null;
+  trackingCountdown = cfg.interval;
 
-  let lastLat = null, lastLon = null;
-  const MIN_DIST = 3; // minimum 3 metres between points
+  const btn    = document.getElementById('trackBtn_'    + target);
+  const status = document.getElementById('trackStatus_' + target);
+  const info   = document.getElementById('trackInfo_'   + target);
+  if (btn)    { btn.textContent = '⏹ Arrêter le tracé'; btn.classList.add('tracking-active'); }
+  if (info)   info.classList.remove('hidden');
+  if (status) status.textContent = '🔴 En cours — acquisition GPS…';
+  showToast(`Tracé démarré — ${cfg.interval}s / ≤${cfg.maxAccuracy}m`, 'success');
 
-  trackingWatchId = navigator.geolocation.watchPosition(pos => {
-    const lat = pos.coords.latitude.toFixed(8);
-    const lon = pos.coords.longitude.toFixed(8);
-    const acc = pos.coords.accuracy;
+  // Continuous GPS watch (feeds lastGPSPosition)
+  trackingWatchId = navigator.geolocation.watchPosition(
+    pos  => { lastGPSPosition = pos; updateCountdownUI(target, trackingCountdown, cfg.maxAccuracy); },
+    err  => { showToast('Erreur GPS: ' + err.message, 'error'); stopTracking(); },
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+  );
 
-    // Only add point if moved enough
-    if (lastLat !== null) {
-      const d = distanceMeters(parseFloat(lastLat), parseFloat(lastLon), parseFloat(lat), parseFloat(lon));
-      if (d < MIN_DIST) return;
+  // Timed capture every second (counts down, captures at 0)
+  trackingTimer = setInterval(() => {
+    trackingCountdown--;
+    updateCountdownUI(target, trackingCountdown, cfg.maxAccuracy);
+    if (trackingCountdown <= 0) {
+      trackingCountdown = cfg.interval;
+      captureTrackingPoint(target, cfg.maxAccuracy);
     }
-    lastLat = lat; lastLon = lon;
+  }, 1000);
+}
 
-    const pt = { lat, lon, acc: acc.toFixed(1) };
+function updateCountdownUI(target, countdown, maxAcc) {
+  const accEl  = document.getElementById('trackAcc_'  + target);
+  const nextEl = document.getElementById('trackNext_' + target);
+  if (lastGPSPosition && accEl) {
+    const acc = lastGPSPosition.coords.accuracy;
+    const ok  = acc <= maxAcc;
+    accEl.innerHTML = `<span style="color:${ok?'var(--green-600)':'var(--red-500)'}">±${acc.toFixed(1)}m ${ok?'✓':'✗'}</span>`;
+  }
+  if (nextEl) nextEl.textContent = `Prochain: ${countdown}s`;
+}
 
-    if (target === 'parcelle') {
-      polygonePoints.push(pt);
-      const c = document.getElementById('polygonePoints');
-      if (c) c.innerHTML = buildPolygonePoints(polygonePoints);
-      const cnt = document.getElementById('polygoneCount');
-      if (cnt) cnt.textContent = `${polygonePoints.length} point(s) — ±${acc.toFixed(0)}m`;
-    } else {
-      // plage vide: target = 'plage_N'
-      const idx = parseInt(target.split('_')[1]);
-      if (!plageVideData[idx]) plageVideData[idx] = [];
-      plageVideData[idx].push(pt);
-      const c = document.getElementById(`plagePoints_${idx}`);
-      if (c) c.innerHTML = buildPlagePoints(idx, plageVideData[idx]);
-      const cnt = document.getElementById(`plageCount_${idx}`);
-      if (cnt) cnt.textContent = `${plageVideData[idx].length} point(s) — ±${acc.toFixed(0)}m`;
-    }
-  }, err => {
-    showToast('Erreur GPS: '+err.message,'error');
-    stopTracking();
-  }, { enableHighAccuracy:true, timeout:30000, maximumAge:0 });
+function captureTrackingPoint(target, maxAccuracy) {
+  if (!lastGPSPosition) { updateStatus(target, '⚠️ Pas de signal GPS…'); return; }
+  const acc = lastGPSPosition.coords.accuracy;
+  if (acc > maxAccuracy) {
+    const s = document.getElementById('trackStatus_' + target);
+    if (s) s.textContent = `⚠️ Précision ±${acc.toFixed(1)}m > ${maxAccuracy}m — point ignoré`;
+    return;
+  }
+  const pt = {
+    lat: lastGPSPosition.coords.latitude.toFixed(8),
+    lon: lastGPSPosition.coords.longitude.toFixed(8),
+    acc: acc.toFixed(1),
+    t:   new Date().toISOString(),
+  };
+  if (target === 'parcelle') {
+    polygonePoints.push(pt);
+    refreshPolygoneUI();
+    drawMapCanvas('parcelle', polygonePoints);
+  } else {
+    const idx = parseInt(target.split('_')[1]);
+    if (!plageVideData[idx]) plageVideData[idx] = [];
+    plageVideData[idx].push(pt);
+    refreshPlageUI(idx);
+    drawMapCanvas(target, plageVideData[idx]);
+  }
+  const total  = target === 'parcelle' ? polygonePoints.length : (plageVideData[parseInt(target.split('_')[1])]||[]).length;
+  const s      = document.getElementById('trackStatus_' + target);
+  const ptsEl  = document.getElementById('trackPts_'    + target);
+  if (s)     s.textContent = `✅ Point #${total} enregistré (±${acc.toFixed(1)}m)`;
+  if (ptsEl) ptsEl.textContent = `${total} pts`;
 }
 
 function stopTracking() {
-  if (trackingWatchId !== null) {
-    navigator.geolocation.clearWatch(trackingWatchId);
-    trackingWatchId = null;
-  }
+  if (trackingTimer)      { clearInterval(trackingTimer); trackingTimer = null; }
+  if (trackingWatchId !== null) { navigator.geolocation.clearWatch(trackingWatchId); trackingWatchId = null; }
   if (trackingTarget) {
-    const btn = document.getElementById('trackBtn_'+trackingTarget);
-    const status = document.getElementById('trackStatus_'+trackingTarget);
-    if (btn) { btn.textContent = '▶ Tracer le polygone en marchant'; btn.classList.remove('tracking-active'); }
-    if (status) {
-      const count = trackingTarget==='parcelle' ? polygonePoints.length : (plageVideData[parseInt(trackingTarget.split('_')[1])]||[]).length;
-      status.textContent = count > 0 ? `✅ ${count} point(s) enregistré(s)` : '';
-    }
-    trackingActive = false;
-    trackingTarget = null;
-    showToast('Tracé terminé ✓','success');
+    const btn    = document.getElementById('trackBtn_'    + trackingTarget);
+    const status = document.getElementById('trackStatus_' + trackingTarget);
+    const info   = document.getElementById('trackInfo_'   + trackingTarget);
+    const total  = trackingTarget === 'parcelle'
+      ? polygonePoints.length
+      : (plageVideData[parseInt(trackingTarget.split('_')[1])]||[]).length;
+    if (btn)    { btn.textContent = '▶ Démarrer le tracé'; btn.classList.remove('tracking-active'); }
+    if (info)   info.classList.add('hidden');
+    if (status) status.textContent = total > 0 ? `✅ Tracé terminé — ${total} point(s)` : '';
+    showToast('Tracé arrêté ✓','success');
   }
+  trackingActive = false; trackingTarget = null;
+  lastGPSPosition = null; trackingCountdown = 0;
 }
 
-// Add single manual point (backup)
-function addPolygonePoint() {
+function clearPolygone(target) {
+  showConfirm('Effacer le tracé','Tous les points seront supprimés. Confirmer ?', () => {
+    if (target === 'parcelle') { polygonePoints = []; refreshPolygoneUI(); drawMapCanvas('parcelle',[]); }
+    else { const idx=parseInt(target.split('_')[1]); plageVideData[idx]=[]; refreshPlageUI(idx); drawMapCanvas(target,[]); }
+    const s = document.getElementById('trackStatus_' + target);
+    if (s) s.textContent = '';
+    showToast('Tracé effacé','success');
+  });
+}
+
+function refreshPolygoneUI() {
+  const c = document.getElementById('polygonePoints');
+  if (c) c.innerHTML = buildPolygonePoints(polygonePoints);
+  const cnt = document.getElementById('polygoneCount');
+  if (cnt) cnt.textContent = `${polygonePoints.length} point(s)`;
+}
+function refreshPlageUI(idx) {
+  const c = document.getElementById(`plagePoints_${idx}`);
+  if (c) c.innerHTML = buildPlagePoints(idx, plageVideData[idx]||[]);
+  const cnt = document.getElementById(`plageCount_${idx}`);
+  if (cnt) cnt.textContent = `${(plageVideData[idx]||[]).length} point(s)`;
+}
+
+// Manual point add
+function addPolygonePointManual() {
   if (!navigator.geolocation) { showToast('GPS non disponible','error'); return; }
   navigator.geolocation.getCurrentPosition(pos => {
     const pt = { lat:pos.coords.latitude.toFixed(8), lon:pos.coords.longitude.toFixed(8), acc:pos.coords.accuracy.toFixed(1) };
     polygonePoints.push(pt);
-    const c = document.getElementById('polygonePoints');
-    if (c) c.innerHTML = buildPolygonePoints(polygonePoints);
-    const cnt = document.getElementById('polygoneCount');
-    if (cnt) cnt.textContent = `${polygonePoints.length} point(s)`;
+    refreshPolygoneUI();
+    drawMapCanvas('parcelle', polygonePoints);
     showToast(`Point ${polygonePoints.length} ajouté ±${pt.acc}m`,'success');
-  }, err=>showToast('Erreur GPS','error'), {enableHighAccuracy:true,timeout:15000});
+  }, ()=>showToast('Erreur GPS','error'), {enableHighAccuracy:true,timeout:15000});
 }
-
+function addPolygonePoint() { addPolygonePointManual(); } // alias
 function removePolygonePoint(i) {
   polygonePoints.splice(i,1);
-  const c=document.getElementById('polygonePoints');
-  if(c) c.innerHTML=buildPolygonePoints(polygonePoints);
-  const cnt=document.getElementById('polygoneCount');
-  if(cnt) cnt.textContent=`${polygonePoints.length} point(s)`;
+  refreshPolygoneUI();
+  drawMapCanvas('parcelle', polygonePoints);
 }
 function addPlagePoint(idx) {
   if (!navigator.geolocation) { showToast('GPS non disponible','error'); return; }
@@ -361,17 +421,104 @@ function addPlagePoint(idx) {
     if (!plageVideData[idx]) plageVideData[idx]=[];
     const pt={lat:pos.coords.latitude.toFixed(8),lon:pos.coords.longitude.toFixed(8),acc:pos.coords.accuracy.toFixed(1)};
     plageVideData[idx].push(pt);
-    const c=document.getElementById(`plagePoints_${idx}`);
-    if(c) c.innerHTML=buildPlagePoints(idx,plageVideData[idx]);
-    const cnt=document.getElementById(`plageCount_${idx}`);
-    if(cnt) cnt.textContent=`${plageVideData[idx].length} point(s)`;
+    refreshPlageUI(idx);
+    drawMapCanvas('plage_'+idx, plageVideData[idx]);
     showToast(`Point ajouté ±${pt.acc}m`,'success');
-  }, err=>showToast('Erreur GPS','error'), {enableHighAccuracy:true,timeout:15000});
+  }, ()=>showToast('Erreur GPS','error'), {enableHighAccuracy:true,timeout:15000});
 }
 
-// Haversine distance in metres
+// ── MAP CANVAS PREVIEW ────────────────────────
+function drawMapCanvas(target, points) {
+  const canvas = document.getElementById('mapCanvas_' + target);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  // Background + grid
+  ctx.fillStyle = '#f0f7f0'; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = '#c8e6c9'; ctx.lineWidth = 0.5;
+  for (let x=0;x<W;x+=30) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y=0;y<H;y+=30) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  if (!points || points.length === 0) {
+    ctx.fillStyle = '#9e9e9e'; ctx.font = '13px Sora,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('Démarrez le tracé pour voir l\'aperçu', W/2, H/2-8);
+    ctx.fillStyle='#bdbdbd'; ctx.font='11px Sora,sans-serif';
+    ctx.fillText('Le polygone apparaîtra ici en temps réel', W/2, H/2+12);
+    return;
+  }
+
+  const lats = points.map(p=>parseFloat(p.lat)), lons = points.map(p=>parseFloat(p.lon));
+  const minLat=Math.min(...lats), maxLat=Math.max(...lats);
+  const minLon=Math.min(...lons), maxLon=Math.max(...lons);
+  const pad=28;
+  const rangeX = maxLon-minLon || 0.0001, rangeY = maxLat-minLat || 0.0001;
+  const scale = Math.min((W-pad*2)/rangeX, (H-pad*2)/rangeY);
+  const offX = (W - rangeX*scale)/2, offY = (H - rangeY*scale)/2;
+  const tc = (lat,lon) => ({ x: offX+(lon-minLon)*scale, y: H-offY-(lat-minLat)*scale });
+
+  // Filled polygon
+  if (points.length >= 3) {
+    ctx.beginPath();
+    const s = tc(lats[0],lons[0]); ctx.moveTo(s.x,s.y);
+    for (let i=1;i<points.length;i++) { const p=tc(lats[i],lons[i]); ctx.lineTo(p.x,p.y); }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(46,157,94,0.18)'; ctx.fill();
+    ctx.strokeStyle='#2e9d5e'; ctx.lineWidth=2; ctx.setLineDash([]); ctx.stroke();
+  } else {
+    ctx.beginPath();
+    const s=tc(lats[0],lons[0]); ctx.moveTo(s.x,s.y);
+    for (let i=1;i<points.length;i++) { const p=tc(lats[i],lons[i]); ctx.lineTo(p.x,p.y); }
+    ctx.strokeStyle='#2e9d5e'; ctx.lineWidth=2; ctx.setLineDash([5,4]); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // Closing dashed line
+  if (points.length>=2) {
+    const pF=tc(lats[0],lons[0]), pL=tc(lats[points.length-1],lons[points.length-1]);
+    ctx.beginPath(); ctx.moveTo(pL.x,pL.y); ctx.lineTo(pF.x,pF.y);
+    ctx.strokeStyle='rgba(46,157,94,0.35)'; ctx.lineWidth=1.5; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // Draw dots
+  points.forEach((pt,i) => {
+    const {x,y} = tc(parseFloat(pt.lat),parseFloat(pt.lon));
+    if (i===0) {
+      ctx.beginPath(); ctx.arc(x,y,7,0,Math.PI*2); ctx.fillStyle='#1a4a2e'; ctx.fill();
+      ctx.fillStyle='#fff'; ctx.font='bold 8px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('S',x,y);
+    } else if (i===points.length-1 && trackingActive) {
+      ctx.beginPath(); ctx.arc(x,y,9,0,Math.PI*2); ctx.fillStyle='rgba(239,68,68,0.2)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fillStyle='#ef4444'; ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fillStyle='#3b82f6'; ctx.fill();
+    }
+  });
+
+  // Area label
+  if (points.length>=3) {
+    const areaHa = (estimatePolygonArea(points)/10000).toFixed(4);
+    ctx.fillStyle='rgba(26,74,46,0.8)';
+    ctx.beginPath(); ctx.roundRect(W/2-58,H-23,116,18,4); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 11px Sora,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(`≈ ${areaHa} ha  (${points.length} pts)`, W/2, H-14);
+  }
+}
+
+// Shoelace on lat/lon → m²
+function estimatePolygonArea(points) {
+  const R=6371000; let area=0; const n=points.length;
+  for (let i=0;i<n;i++) {
+    const j=(i+1)%n;
+    const la1=parseFloat(points[i].lat)*Math.PI/180, la2=parseFloat(points[j].lat)*Math.PI/180;
+    const lo1=parseFloat(points[i].lon)*Math.PI/180, lo2=parseFloat(points[j].lon)*Math.PI/180;
+    area+=(lo2-lo1)*(2+Math.sin(la1)+Math.sin(la2));
+  }
+  return Math.abs(area*R*R/2);
+}
+
+// Haversine distance
 function distanceMeters(lat1,lon1,lat2,lon2) {
-  const R=6371000, dLat=(lat2-lat1)*Math.PI/180, dLon=(lon2-lon1)*Math.PI/180;
+  const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
