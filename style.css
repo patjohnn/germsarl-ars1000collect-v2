@@ -259,3 +259,22 @@ html,body{height:100%;font-family:var(--font);background:var(--gray-50);color:va
 .admin-fiche-header{background:var(--green-100);color:var(--green-800);padding:8px 12px;border-radius:var(--r-sm);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 4px}
 .fiche-tag{background:var(--green-600);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:var(--r-full);margin-right:6px}
 .add-custom-q-form{background:var(--gray-50);border:1.5px dashed var(--gray-300);border-radius:var(--r-md);padding:16px;margin-top:16px}
+
+/* ── Tracker config box ── */
+.tracker-config{background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:var(--r-md);padding:14px;margin-bottom:10px}
+.tc-title{font-size:12px;font-weight:700;color:var(--gray-600);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.tc-note{font-size:11px;color:var(--gray-500);margin-top:8px;font-style:italic;line-height:1.5}
+
+/* ── Tracking live info bar ── */
+.track-live-info{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.tli-item{background:rgba(0,0,0,0.06);border-radius:var(--r-full);padding:4px 10px;font-size:12px;font-weight:600;color:var(--gray-700)}
+
+/* ── Map canvas ── */
+.map-preview-wrap{background:var(--white);border:1.5px solid var(--gray-200);border-radius:var(--r-md);overflow:hidden;margin-top:10px}
+.map-preview-title{font-size:12px;font-weight:700;color:var(--gray-600);padding:8px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:6px}
+.map-canvas{display:block;width:100%;height:auto;max-height:260px;object-fit:contain}
+.map-legend{display:flex;align-items:center;gap:12px;padding:6px 12px;font-size:11px;color:var(--gray-500);border-top:1px solid var(--gray-100)}
+.ml-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:3px}
+.ml-green{background:#1a4a2e}
+.ml-blue{background:#3b82f6}
+.ml-red{background:#ef4444}
