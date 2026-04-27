@@ -91,7 +91,8 @@ function buildFiche1(d={}) {
       <b>Statut Plantation:</b> 1.Aucun 2.Propriétaire 3.Gérant 4.MO permanent 5.MO Temporaire<br>
       <b>Niveau d'instruction:</b> 1.Aucun 2.Préscolaire 3.Primaire 4.Secondaire 5.Supérieur 6.Autre<br>
       <b>Catégorie ethnique:</b> 1.Autochtone 2.Allochtone 3.Allogène
-    </div>`;
+    </div>
+    ${buildCustomQuestionsSection(1)}`;
 }
 
 function buildMenageRows(rows) {
@@ -120,7 +121,22 @@ function buildMenageRow(r={}, i=0) {
   </div>`;
 }
 
-// ── FICHE 2 ───────────────────────────────────
+// ── CUSTOM QUESTIONS (injected by admin) ──────
+function buildCustomQuestionsSection(ficheNum) {
+  const custom = (typeof getCustomQuestions === 'function') ? getCustomQuestions().filter(q=>parseInt(q.fiche)===ficheNum) : [];
+  if (!custom.length) return '';
+  return sec('Questions supplémentaires','📋') + custom.map(q => {
+    if (q.type === 'textarea') return fld(q.label, q.id, 'textarea', '', { placeholder: 'Votre réponse…' });
+    if (q.type === 'number') return fld(q.label, q.id, 'number', '');
+    if (q.type === 'select' && q.options?.length) {
+      return fld(q.label, q.id, 'select', '', { options: q.options.map(o=>({v:o,l:o})) });
+    }
+    if (q.type === 'radio' && q.options?.length) {
+      return fld(q.label, q.id, 'radio', '', { options: q.options.map(o=>({v:o,l:o})) });
+    }
+    return fld(q.label, q.id, 'text', '', { placeholder: 'Votre réponse…' });
+  }).join('');
+}
 function buildFiche2(d={}) {
   return `
     ${sec('Coordonnées GPS de la cacaoyère','🌍')}
@@ -140,7 +156,8 @@ function buildFiche2(d={}) {
     ${sec('Diagnostic arbres non-cacaoyers','🌳')}
     <p class="hint">Arbres forestiers et fruitiers présents dans la cacaoyère.</p>
     <div id="arbreRows">${buildArbreRows(d.arbres||[{}])}</div>
-    <button class="add-row-btn" onclick="addArbre()">➕ Ajouter un arbre</button>`;
+    <button class="add-row-btn" onclick="addArbre()">➕ Ajouter un arbre</button>
+    ${buildCustomQuestionsSection(2)}`;
 }
 
 function buildParcelleRows(rows) {
@@ -270,12 +287,16 @@ function buildFiche3(d={}) {
     ${buildDensiteTable(d)}
 
     ${sec('Polygone de la parcelle','🗺️')}
-    <p class="hint">Collectez les points GPS formant le contour de la parcelle.</p>
-    <div id="polygonePoints">${buildPolygonePoints(d.polygone||[])}</div>
+    <p class="hint">Marchez le long du périmètre de la parcelle — le système tracera le polygone automatiquement en temps réel.</p>
+    <div class="tracking-box">
+      <button class="track-btn" id="trackBtn_parcelle" onclick="startTracking('parcelle')">▶ Tracer le polygone en marchant</button>
+      <div class="track-status" id="trackStatus_parcelle"></div>
+    </div>
     <div class="gps-row" style="margin-top:8px">
-      <button class="gps-btn" onclick="addPolygonePoint()">📍 Ajouter un point GPS</button>
+      <button class="gps-btn" onclick="addPolygonePoint()" style="font-size:12px;padding:8px 10px">📍 Ajouter point manuellement</button>
       <span id="polygoneCount" class="gps-acc">${(d.polygone||[]).length} point(s)</span>
     </div>
+    <div id="polygonePoints" style="margin-top:8px">${buildPolygonePoints(d.polygone||[])}</div>
 
     ${sec('Plages vides dans le champ','⬜')}
     ${fld('Plages vides','plagesVides','radio',d.plagesVides,{options:[{v:'peu',l:'Peu (≤5)'},{v:'beaucoup',l:'Beaucoup (>5)'},{v:'grande',l:'Grande(s) plage(s)'}]})}
@@ -315,7 +336,8 @@ function buildFiche3(d={}) {
     <button class="add-row-btn" onclick="addPhyto()">➕ Ajouter un produit phytosanitaire</button>
 
     ${sec('Gestion des emballages','♻️')}
-    ${fld('Que faites-vous des emballages après traitement ?','gestionEmballages','textarea',d.gestionEmballages,{placeholder:'Décrivez la gestion des emballages…'})}`;
+    ${fld('Que faites-vous des emballages après traitement ?','gestionEmballages','textarea',d.gestionEmballages,{placeholder:'Décrivez la gestion des emballages…'})}
+    ${buildCustomQuestionsSection(3)}`;
 }
 
 function buildDensiteTable(d={}) {
@@ -374,9 +396,13 @@ function buildPlageVideRow(r={}, i=0) {
   const pts = r.points || [];
   return `<div class="sub-card" data-plage="${i}">
     <div class="sub-card-header">Plage vide #${i+1}<span class="del-btn" onclick="this.closest('[data-plage]').remove()">🗑</span></div>
-    <div id="plagePoints_${i}">${buildPlagePoints(i, pts)}</div>
-    <button class="gps-btn" style="margin-top:8px" onclick="addPlagePoint(${i})">📍 Ajouter point GPS</button>
+    <div class="tracking-box">
+      <button class="track-btn" id="trackBtn_plage_${i}" onclick="startTracking('plage_${i}')">▶ Tracer le polygone en marchant</button>
+      <div class="track-status" id="trackStatus_plage_${i}"></div>
+    </div>
+    <button class="gps-btn" style="margin-top:8px;font-size:12px;padding:8px 10px" onclick="addPlagePoint(${i})">📍 Ajouter point manuellement</button>
     <span id="plageCount_${i}" class="gps-acc" style="margin-left:8px">${pts.length} point(s)</span>
+    <div id="plagePoints_${i}" style="margin-top:8px">${buildPlagePoints(i, pts)}</div>
   </div>`;
 }
 function buildPlagePoints(plage_i, pts=[]) {
@@ -550,7 +576,8 @@ function buildFiche4(d={}) {
 
     ${sec('Coût de la main d\'œuvre','👷')}
     <div id="moRows">${buildMORows(d.mainoeuvre||[{}])}</div>
-    <button class="add-row-btn" onclick="addMO()">➕ Ajouter un travailleur</button>`;
+    <button class="add-row-btn" onclick="addMO()">➕ Ajouter un travailleur</button>
+    ${buildCustomQuestionsSection(4)}`;
 }
 
 function buildEpargneRows(rows=[]) {
