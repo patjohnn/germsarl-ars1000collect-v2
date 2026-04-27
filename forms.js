@@ -287,16 +287,67 @@ function buildFiche3(d={}) {
     ${buildDensiteTable(d)}
 
     ${sec('Polygone de la parcelle','🗺️')}
-    <p class="hint">Marchez le long du périmètre de la parcelle — le système tracera le polygone automatiquement en temps réel.</p>
-    <div class="tracking-box">
-      <button class="track-btn" id="trackBtn_parcelle" onclick="startTracking('parcelle')">▶ Tracer le polygone en marchant</button>
-      <div class="track-status" id="trackStatus_parcelle"></div>
+    <p class="hint">Marchez le long du périmètre — le tracé se dessine en temps réel sur la carte.</p>
+
+    <div class="tracker-config">
+      <div class="tc-title">⚙️ Paramètres du tracé</div>
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">Intervalle entre points</label>
+          <select class="field-select" id="trackInterval_parcelle">
+            <option value="2">2 secondes</option>
+            <option value="5" selected>5 secondes</option>
+            <option value="10">10 secondes</option>
+            <option value="15">15 secondes</option>
+            <option value="30">30 secondes</option>
+            <option value="60">1 minute</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Précision minimale requise</label>
+          <select class="field-select" id="trackAccuracy_parcelle">
+            <option value="5">≤ 5 mètres</option>
+            <option value="10" selected>≤ 10 mètres</option>
+            <option value="15">≤ 15 mètres</option>
+            <option value="20">≤ 20 mètres</option>
+            <option value="50">≤ 50 mètres</option>
+          </select>
+        </div>
+      </div>
+      <div class="tc-note">Les points dont la précision GPS est inférieure au seuil choisi seront ignorés automatiquement.</div>
     </div>
-    <div class="gps-row" style="margin-top:8px">
-      <button class="gps-btn" onclick="addPolygonePoint()" style="font-size:12px;padding:8px 10px">📍 Ajouter point manuellement</button>
+
+    <div class="tracking-box" id="trackingBox_parcelle">
+      <button class="track-btn" id="trackBtn_parcelle" onclick="startTracking('parcelle')">
+        ▶ Démarrer le tracé
+      </button>
+      <div class="track-status" id="trackStatus_parcelle"></div>
+      <div class="track-live-info hidden" id="trackInfo_parcelle">
+        <span class="tli-item" id="trackPts_parcelle">0 pts</span>
+        <span class="tli-item" id="trackAcc_parcelle">— m</span>
+        <span class="tli-item" id="trackNext_parcelle">—</span>
+      </div>
+    </div>
+
+    <!-- Aperçu cartographique temps réel -->
+    <div class="map-preview-wrap">
+      <div class="map-preview-title">🗺 Aperçu du tracé en temps réel</div>
+      <canvas id="mapCanvas_parcelle" class="map-canvas" width="340" height="240"></canvas>
+      <div class="map-legend">
+        <span class="ml-dot ml-green"></span>Départ
+        <span class="ml-dot ml-blue"></span>Points
+        <span class="ml-dot ml-red"></span>Position actuelle
+      </div>
+    </div>
+
+    <div class="gps-row" style="margin-top:10px">
+      <button class="gps-btn" onclick="addPolygonePointManual()" style="font-size:12px;padding:8px 10px">📍 Ajouter point manuellement</button>
       <span id="polygoneCount" class="gps-acc">${(d.polygone||[]).length} point(s)</span>
     </div>
     <div id="polygonePoints" style="margin-top:8px">${buildPolygonePoints(d.polygone||[])}</div>
+    <div class="gps-row" style="margin-top:4px">
+      <button class="gps-btn" style="background:var(--red-100);border-color:var(--red-500);color:var(--red-500);font-size:12px;padding:8px 10px" onclick="clearPolygone('parcelle')">🗑 Effacer le tracé</button>
+    </div>
 
     ${sec('Plages vides dans le champ','⬜')}
     ${fld('Plages vides','plagesVides','radio',d.plagesVides,{options:[{v:'peu',l:'Peu (≤5)'},{v:'beaucoup',l:'Beaucoup (>5)'},{v:'grande',l:'Grande(s) plage(s)'}]})}
@@ -396,13 +447,50 @@ function buildPlageVideRow(r={}, i=0) {
   const pts = r.points || [];
   return `<div class="sub-card" data-plage="${i}">
     <div class="sub-card-header">Plage vide #${i+1}<span class="del-btn" onclick="this.closest('[data-plage]').remove()">🗑</span></div>
-    <div class="tracking-box">
-      <button class="track-btn" id="trackBtn_plage_${i}" onclick="startTracking('plage_${i}')">▶ Tracer le polygone en marchant</button>
-      <div class="track-status" id="trackStatus_plage_${i}"></div>
+
+    <div class="tracker-config">
+      <div class="tc-title">⚙️ Paramètres</div>
+      <div class="field-row">
+        <div class="field-group">
+          <label class="field-label">Intervalle</label>
+          <select class="field-select" id="trackInterval_plage_${i}">
+            <option value="2">2 s</option><option value="5" selected>5 s</option>
+            <option value="10">10 s</option><option value="30">30 s</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Précision max</label>
+          <select class="field-select" id="trackAccuracy_plage_${i}">
+            <option value="5">5 m</option><option value="10" selected>10 m</option>
+            <option value="20">20 m</option><option value="50">50 m</option>
+          </select>
+        </div>
+      </div>
     </div>
-    <button class="gps-btn" style="margin-top:8px;font-size:12px;padding:8px 10px" onclick="addPlagePoint(${i})">📍 Ajouter point manuellement</button>
-    <span id="plageCount_${i}" class="gps-acc" style="margin-left:8px">${pts.length} point(s)</span>
-    <div id="plagePoints_${i}" style="margin-top:8px">${buildPlagePoints(i, pts)}</div>
+
+    <div class="tracking-box" id="trackingBox_plage_${i}">
+      <button class="track-btn" id="trackBtn_plage_${i}" onclick="startTracking('plage_${i}')">▶ Démarrer le tracé</button>
+      <div class="track-status" id="trackStatus_plage_${i}"></div>
+      <div class="track-live-info hidden" id="trackInfo_plage_${i}">
+        <span class="tli-item" id="trackPts_plage_${i}">0 pts</span>
+        <span class="tli-item" id="trackAcc_plage_${i}">— m</span>
+        <span class="tli-item" id="trackNext_plage_${i}">—</span>
+      </div>
+    </div>
+
+    <div class="map-preview-wrap">
+      <div class="map-preview-title">🗺 Aperçu temps réel</div>
+      <canvas id="mapCanvas_plage_${i}" class="map-canvas" width="340" height="200"></canvas>
+    </div>
+
+    <div class="gps-row" style="margin-top:8px">
+      <button class="gps-btn" style="font-size:12px;padding:8px 10px" onclick="addPlagePoint(${i})">📍 Ajouter point manuellement</button>
+      <span id="plageCount_${i}" class="gps-acc">${pts.length} point(s)</span>
+    </div>
+    <div id="plagePoints_${i}" style="margin-top:6px">${buildPlagePoints(i, pts)}</div>
+    <div class="gps-row" style="margin-top:4px">
+      <button class="gps-btn" style="background:var(--red-100);border-color:var(--red-500);color:var(--red-500);font-size:12px;padding:8px 10px" onclick="clearPolygone('plage_${i}')">🗑 Effacer</button>
+    </div>
   </div>`;
 }
 function buildPlagePoints(plage_i, pts=[]) {
