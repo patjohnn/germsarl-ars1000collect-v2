@@ -246,3 +246,16 @@ html,body{height:100%;font-family:var(--font);background:var(--gray-50);color:va
 .empty-state p{font-size:14px}
 
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--gray-300);border-radius:2px}
+
+/* ── Live Tracking ── */
+.tracking-box{background:var(--green-50);border:2px solid var(--green-200);border-radius:var(--r-md);padding:14px;margin-bottom:8px}
+.track-btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--green-600),var(--green-500));color:#fff;border:none;border-radius:var(--r-sm);font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+.track-btn.tracking-active{background:linear-gradient(135deg,#dc2626,#ef4444);animation:trackPulse 1.5s infinite}
+.track-btn:active{transform:scale(.98)}
+.track-status{font-size:12px;color:var(--green-700);margin-top:8px;font-weight:500;min-height:16px}
+@keyframes trackPulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.4)}50%{box-shadow:0 0 0 8px rgba(239,68,68,0)}}
+
+/* ── Admin extras ── */
+.admin-fiche-header{background:var(--green-100);color:var(--green-800);padding:8px 12px;border-radius:var(--r-sm);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 4px}
+.fiche-tag{background:var(--green-600);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:var(--r-full);margin-right:6px}
+.add-custom-q-form{background:var(--gray-50);border:1.5px dashed var(--gray-300);border-radius:var(--r-md);padding:16px;margin-top:16px}
